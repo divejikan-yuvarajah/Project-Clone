@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import type { MockConversation } from '@/lib/mock-data';
+import type { ConversationSummary } from '@/lib/types';
 
-export function ConversationList({ conversations }: { conversations: MockConversation[] }) {
+export function ConversationList({ conversations }: { conversations: ConversationSummary[] }) {
   const pathname = usePathname();
 
   if (conversations.length === 0) {
