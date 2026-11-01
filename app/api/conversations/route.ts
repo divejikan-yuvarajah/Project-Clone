@@ -1,9 +1,16 @@
-// Implemented in Phase 4 (conversation persistence). Stubbed now so the build succeeds.
+import type { NextRequest } from 'next/server';
+import { listConversations } from '@/lib/db/conversations';
 
-export async function GET() {
-  return Response.json({ error: 'Not implemented yet — coming in Phase 4.' }, { status: 501 });
-}
+// Conversations are created implicitly by POST /api/chat on a user's first
+// message — there's no separate "create empty conversation" endpoint.
 
-export async function POST() {
-  return Response.json({ error: 'Not implemented yet — coming in Phase 4.' }, { status: 501 });
+export async function GET(req: NextRequest) {
+  const search = req.nextUrl.searchParams.get('q') ?? undefined;
+  try {
+    const conversations = await listConversations(search);
+    return Response.json({ conversations });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load conversations.';
+    return Response.json({ error: message }, { status: 500 });
+  }
 }

@@ -5,9 +5,9 @@
 | 0 — Feasibility | Confirm billing, finalize stack | ✅ Done — $50 Console promotional credit confirmed (applies to all models/products), stack = Next.js + Supabase |
 | 1 — Foundation | Repo + tooling | ✅ Done |
 | 2 — Core interface | Sidebar + chat shell (no AI yet) | ✅ Done |
-| 3 — Anthropic integration | Real streaming chat | ⏳ In progress |
-| 4 — Persistence | Conversations survive reload | Not started |
-| 5 — Core productivity | Study mode, docs, coding polish | Not started |
+| 3 — Anthropic integration | Real streaming chat | ✅ Done |
+| 4 — Persistence | Conversations survive reload | ✅ Done |
+| 5 — Core productivity | PDF upload + grounded Q&A, markdown/code rendering, UI refresh | ⏳ In progress |
 | 6 — External tools | Search + images | Not started |
 | 7 — Security & optimization | Harden before wider use | Not started |
 | 8 — Testing & deployment | Ship it | Not started |

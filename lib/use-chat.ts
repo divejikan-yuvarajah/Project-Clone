@@ -1,22 +1,30 @@
 'use client';
 
 import { useCallback, useRef, useState } from 'react';
-import type { ChatMessage } from './types';
+import type { ChatMessage, MessageAttachment } from './types';
 
-export function useChat(initialMessages: ChatMessage[], model: string) {
+interface UseChatOptions {
+  conversationId: string | null;
+  initialMessages: ChatMessage[];
+  model: string;
+  onConversationCreated?: (id: string) => void;
+}
+
+export function useChat({ conversationId, initialMessages, model, onConversationCreated }: UseChatOptions) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const send = useCallback(
-    async (text: string) => {
+    async (text: string, attachments?: MessageAttachment[]) => {
       setError(null);
       const userMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'user',
         content: text,
         createdAt: new Date().toISOString(),
+        attachments,
       };
       const assistantId = crypto.randomUUID();
 
@@ -29,6 +37,7 @@ export function useChat(initialMessages: ChatMessage[], model: string) {
 
       const controller = new AbortController();
       abortRef.current = controller;
+      let createdConversationId: string | null = null;
 
       try {
         const response = await fetch('/api/chat', {
@@ -36,8 +45,10 @@ export function useChat(initialMessages: ChatMessage[], model: string) {
           headers: { 'content-type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
+            conversationId,
             model,
-            messages: [...messages, userMessage].map((m) => ({ role: m.role, content: m.content })),
+            message: text,
+            attachmentIds: attachments?.map((a) => a.id) ?? [],
           }),
         });
 
@@ -60,16 +71,22 @@ export function useChat(initialMessages: ChatMessage[], model: string) {
 
           for (const line of lines) {
             if (!line.trim()) continue;
-            const event = JSON.parse(line) as { type: string; text?: string; message?: string };
+            const event = JSON.parse(line) as {
+              type: string;
+              text?: string;
+              message?: string;
+              id?: string;
+            };
 
-            if (event.type === 'delta' && event.text) {
+            if (event.type === 'conversation' && event.id && !conversationId) {
+              createdConversationId = event.id;
+            } else if (event.type === 'delta' && event.text) {
               setMessages((prev) =>
                 prev.map((m) => (m.id === assistantId ? { ...m, content: m.content + event.text } : m)),
               );
             } else if (event.type === 'error') {
               throw new Error(event.message ?? 'Something went wrong talking to Claude.');
             }
-            // 'done' events carry token usage — persisted to usage_log starting in Phase 4.
           }
         }
       } catch (err) {
@@ -78,15 +95,17 @@ export function useChat(initialMessages: ChatMessage[], model: string) {
         } else {
           const message = err instanceof Error ? err.message : 'Something went wrong talking to Claude.';
           setError(message);
-          // Drop the empty placeholder bubble if nothing streamed back before the failure.
           setMessages((prev) => prev.filter((m) => m.id !== assistantId || m.content.length > 0));
         }
       } finally {
         setIsStreaming(false);
         abortRef.current = null;
+        if (createdConversationId) {
+          onConversationCreated?.(createdConversationId);
+        }
       }
     },
-    [messages, model],
+    [conversationId, model, onConversationCreated],
   );
 
   const stop = useCallback(() => {

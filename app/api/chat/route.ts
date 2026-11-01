@@ -1,5 +1,14 @@
 import type { NextRequest } from 'next/server';
 import { anthropic, DEFAULT_SYSTEM_PROMPT } from '@/lib/anthropic/client';
+import {
+  createConversation,
+  getConversationWithMessages,
+  addMessage,
+  touchConversation,
+  logUsage,
+} from '@/lib/db/conversations';
+import { linkAttachmentsToMessage, getAttachmentsForMessages } from '@/lib/db/attachments';
+import { estimateCostUsd } from '@/lib/costs';
 
 export const runtime = 'nodejs';
 
@@ -7,9 +16,11 @@ const MAX_MESSAGE_LENGTH = 8000;
 const MAX_OUTPUT_TOKENS = 2048;
 const ALLOWED_MODELS = new Set(['claude-haiku-5-5', 'claude-sonnet-5', 'claude-opus-5-5']);
 
-interface IncomingMessage {
-  role: 'user' | 'assistant';
-  content: string;
+interface ChatRequestBody {
+  conversationId?: string | null;
+  model?: string;
+  message?: string;
+  attachmentIds?: string[];
 }
 
 export async function POST(req: NextRequest) {
@@ -20,33 +31,69 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: { model?: string; messages?: IncomingMessage[] };
+  let body: ChatRequestBody;
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: 'Invalid JSON body.' }, { status: 400 });
   }
 
-  const { model, messages } = body;
+  const { model, message } = body;
+  let { conversationId } = body;
+  const attachmentIds = Array.isArray(body.attachmentIds)
+    ? body.attachmentIds.filter((id): id is string => typeof id === 'string')
+    : [];
 
   if (!model || !ALLOWED_MODELS.has(model)) {
     return Response.json({ error: 'Unknown or missing model.' }, { status: 400 });
   }
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return Response.json({ error: 'messages must be a non-empty array.' }, { status: 400 });
+  if (typeof message !== 'string' || message.trim().length === 0) {
+    return Response.json({ error: 'Message is empty.' }, { status: 400 });
   }
-  const lastMessage = messages[messages.length - 1];
-  if (typeof lastMessage?.content !== 'string' || lastMessage.content.length === 0) {
-    return Response.json({ error: 'Last message content is empty.' }, { status: 400 });
-  }
-  if (lastMessage.content.length > MAX_MESSAGE_LENGTH) {
+  if (message.length > MAX_MESSAGE_LENGTH) {
     return Response.json(
       { error: `Message is too long (max ${MAX_MESSAGE_LENGTH} characters).` },
       { status: 400 },
     );
   }
 
+  let history: { role: 'user' | 'assistant'; content: string }[] = [];
+  let priorMessageIds: string[] = [];
+
+  try {
+    if (conversationId) {
+      const existing = await getConversationWithMessages(conversationId);
+      if (!existing) {
+        return Response.json({ error: 'Conversation not found.' }, { status: 404 });
+      }
+      history = existing.messages.map((m) => ({ role: m.role, content: m.content }));
+      priorMessageIds = existing.messages.map((m) => m.id);
+    } else {
+      conversationId = await createConversation(message, model);
+    }
+
+    const userMessageRow = await addMessage(conversationId, 'user', message);
+    if (attachmentIds.length > 0) {
+      await linkAttachmentsToMessage(attachmentIds, userMessageRow.id);
+    }
+    priorMessageIds.push(userMessageRow.id);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Database error while starting the conversation.';
+    return Response.json({ error: msg }, { status: 500 });
+  }
+
+  // Every document attached anywhere in this conversation stays "in context"
+  // for every turn — not just the message it was attached to.
+  const documents = await getAttachmentsForMessages(priorMessageIds).catch(() => []);
+  const systemPrompt =
+    documents.length > 0
+      ? `${DEFAULT_SYSTEM_PROMPT}\n\nThe user has shared the following document(s) in this conversation. Ground your answers in them when relevant, and say clearly if something isn't covered.\n\n${documents
+          .map((d) => `--- ${d.fileName} ---\n${d.extractedText}`)
+          .join('\n\n')}`
+      : DEFAULT_SYSTEM_PROMPT;
+
   const encoder = new TextEncoder();
+  const finalConversationId = conversationId;
 
   const stream = new ReadableStream({
     async start(controller) {
@@ -54,33 +101,51 @@ export async function POST(req: NextRequest) {
         controller.enqueue(encoder.encode(JSON.stringify(event) + '\n'));
       }
 
-      // Forwarding the request's abort signal lets us stop paying for tokens
-      // the moment the client disconnects or clicks "stop".
+      send({ type: 'conversation', id: finalConversationId });
+
       const anthropicStream = anthropic.messages.stream(
         {
           model,
           max_tokens: MAX_OUTPUT_TOKENS,
-          system: DEFAULT_SYSTEM_PROMPT,
-          messages: messages.map((m) => ({ role: m.role, content: m.content })),
+          system: systemPrompt,
+          messages: [...history, { role: 'user', content: message }],
         },
         { signal: req.signal },
       );
 
-      anthropicStream.on('text', (delta) => send({ type: 'delta', text: delta }));
+      let fullText = '';
+      anthropicStream.on('text', (delta) => {
+        fullText += delta;
+        send({ type: 'delta', text: delta });
+      });
 
       try {
         const finalMessage = await anthropicStream.finalMessage();
-        send({
-          type: 'done',
-          usage: {
-            inputTokens: finalMessage.usage.input_tokens,
-            outputTokens: finalMessage.usage.output_tokens,
-          },
-        });
+        const inputTokens = finalMessage.usage.input_tokens;
+        const outputTokens = finalMessage.usage.output_tokens;
+
+        if (fullText.length > 0) {
+          await addMessage(finalConversationId, 'assistant', fullText, {
+            input: inputTokens,
+            output: outputTokens,
+          });
+        }
+        await touchConversation(finalConversationId);
+        await logUsage(
+          finalConversationId,
+          model,
+          inputTokens,
+          outputTokens,
+          estimateCostUsd(model, inputTokens, outputTokens),
+        );
+
+        send({ type: 'done', usage: { inputTokens, outputTokens } });
       } catch (err: unknown) {
         const errWithMeta = err as { name?: string; status?: number; message?: string };
         if (errWithMeta?.name === 'APIUserAbortError' || errWithMeta?.name === 'AbortError') {
-          // User-initiated stop — nothing to report.
+          if (fullText.length > 0) {
+            await addMessage(finalConversationId, 'assistant', fullText).catch(() => {});
+          }
         } else if (errWithMeta?.status) {
           send({
             type: 'error',

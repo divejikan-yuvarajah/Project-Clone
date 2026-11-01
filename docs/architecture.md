@@ -44,6 +44,7 @@ personal-claude-clone/
 │       ├── chat/route.ts
 │       ├── conversations/route.ts
 │       ├── conversations/[id]/route.ts
+│       ├── conversations/[id]/messages/route.ts
 │       ├── usage/route.ts
 │       └── uploads/route.ts    (V2)
 ├── components/
@@ -64,17 +65,17 @@ personal-claude-clone/
 └── package.json
 ```
 
+> **Important:** `app/(chat)/page.tsx` is the real chat home route. `create-next-app` generates a default `app/page.tsx` during scaffolding — delete it. A route group like `(chat)` adds no URL segment, so both files resolve to `/` and only one should exist. If the project is ever rescaffolded from a template, delete the default `app/page.tsx` (and its `app/page.module.css`, if unused elsewhere) before adding the `(chat)` route group back.
+
 ## API endpoints (V1)
 
 | Method | Route | Purpose |
 |---|---|---|
 | POST | `/api/chat` | Send a message, stream the response, log usage |
 | GET | `/api/conversations` | List conversations (with search/filter params) |
-| POST | `/api/conversations` | Create a new conversation |
 | PATCH | `/api/conversations/:id` | Rename / archive a conversation |
 | DELETE | `/api/conversations/:id` | Delete a conversation |
 | GET | `/api/conversations/:id/messages` | Load message history |
-| POST | `/api/conversations/:id/export` | Export as Markdown/JSON |
 | GET | `/api/usage` | Usage/cost summary for the dashboard |
 
 Every route runs server-side only. None of them ever return an API key to the client.
