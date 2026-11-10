@@ -1,7 +1,9 @@
 # Security & Privacy Checklist
 
 - [ ] API key only in server-side env vars (`.env.local`, never committed; `.env.example` has placeholders only).
-- [ ] All provider calls happen in Route Handlers — the browser never sees a key.
+- [x] All provider calls happen in Route Handlers — the browser never sees a key.
+- [x] Tavily, OpenAI, Anthropic, and Supabase credentials are read only by server-side modules and Route Handlers.
+- [x] Generated images are stored privately and exposed through expiring signed URLs.
 - [ ] If deployed beyond localhost: Supabase Auth (even a single-user magic-link login) is added before anything else goes live. "No auth" is fine only while the app is unreachable from the internet.
 - [ ] Input validation on every route (message length caps, file type/size checks).
 - [ ] Rate limiting on `/api/chat` to cap accidental runaway spend.

@@ -1,7 +1,9 @@
-export default function ResearchPage() {
-  return (
-    <div className="flex h-screen items-center justify-center text-sm text-[var(--text-muted)]">
-      Research mode — coming in Phase 6.
-    </div>
-  );
+import { ResearchWorkspace } from '@/components/research/ResearchWorkspace';
+import { listConversations } from '@/lib/db/conversations';
+
+export const dynamic = 'force-dynamic';
+
+export default async function ResearchPage() {
+  const conversations = await listConversations();
+  return <ResearchWorkspace conversations={conversations} />;
 }
