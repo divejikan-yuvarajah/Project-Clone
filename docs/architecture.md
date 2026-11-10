@@ -42,6 +42,8 @@ personal-claude-clone/
 │   ├── settings/page.tsx
 │   └── api/
 │       ├── chat/route.ts
+│       ├── research/route.ts
+│       ├── images/route.ts
 │       ├── conversations/route.ts
 │       ├── conversations/[id]/route.ts
 │       ├── conversations/[id]/messages/route.ts
@@ -69,13 +71,24 @@ personal-claude-clone/
 
 ## API endpoints (V1)
 
-| Method | Route | Purpose |
-|---|---|---|
-| POST | `/api/chat` | Send a message, stream the response, log usage |
-| GET | `/api/conversations` | List conversations (with search/filter params) |
-| PATCH | `/api/conversations/:id` | Rename / archive a conversation |
-| DELETE | `/api/conversations/:id` | Delete a conversation |
-| GET | `/api/conversations/:id/messages` | Load message history |
-| GET | `/api/usage` | Usage/cost summary for the dashboard |
+| Method | Route                             | Purpose                                                      |
+| ------ | --------------------------------- | ------------------------------------------------------------ |
+| POST   | `/api/chat`                       | Send a message, stream the response, log usage               |
+| GET    | `/api/conversations`              | List conversations (with search/filter params)               |
+| PATCH  | `/api/conversations/:id`          | Rename / archive a conversation                              |
+| DELETE | `/api/conversations/:id`          | Delete a conversation                                        |
+| GET    | `/api/conversations/:id/messages` | Load message history                                         |
+| GET    | `/api/usage`                      | Usage/cost summary for the dashboard                         |
+| POST   | `/api/research`                   | Search with Tavily and synthesize a cited answer with Claude |
+| POST   | `/api/images`                     | Generate an image and store it in Supabase Storage           |
 
 Every route runs server-side only. None of them ever return an API key to the client.
+
+## External provider configuration
+
+- `TAVILY_API_KEY` — server-only web search credential.
+- `OPENAI_API_KEY` — server-only image-generation credential.
+- `OPENAI_IMAGE_MODEL` — optional image model override; defaults to `gpt-image-2`.
+- `RESEARCH_MODEL` — optional Anthropic model override; defaults to `claude-sonnet-5`.
+
+Generated images use the existing private `attachments` Storage bucket under the `generated/` prefix and are returned through one-hour signed URLs.
